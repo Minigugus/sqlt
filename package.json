@@ -1,22 +1,31 @@
 {
   "version": "0.1.0",
   "private": true,
-  "main": "dist/index.cjs.js",
-  "types": "dist/index.esm.d.ts",
-  "module": "dist/index.esm.mjs",
-  "typings": "dist/index.esm.d.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "module": "dist/index.mjs",
+  "typings": "dist/index.d.ts",
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "rollup -c"
+    "build": "MODE=production rollup -c",
+    "build:dev": "MODE=developpement rollup -c"
   },
   "name": "sqlt",
   "description": "Safe SQL template API inspired by postgres.js",
   "license": "MIT",
   "devDependencies": {
-    "rollup": "^2.39.1",
+    "@types/node": "^14.14.31",
+    "@types/sqlite3": "^3.1.7",
+    "rollup": "^2.40.0",
     "rollup-plugin-typescript2": "^0.30.0",
-    "typescript": "^4.2.2"
+    "typescript": "^4.2.2",
+    "postgres": "^2.0.0-beta.4",
+    "sqlite3": "^5.0.2"
+  },
+  "peerDependencies": {
+    "postgres": "^2.0.0-beta.4",
+    "sqlite3": "^5.0.2"
   }
 }

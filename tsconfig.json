@@ -10,8 +10,11 @@
     "declaration": true,
     "declarationMap": true,
     "esModuleInterop": true,
+    "types": [
+      "node"
+    ],
     "lib": [
-      "ESNext"
+      "ES2020"
     ]
   },
   "exclude": [

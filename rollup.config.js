@@ -1,29 +1,16 @@
 import typescript from 'rollup-plugin-typescript2';
 
-export default [
+const input = {
+  'index': 'src/index.ts',
+  'drivers': 'src/drivers/index.ts',
+  'null': 'src/drivers/null.ts',
+  'sqlite3': 'src/drivers/sqlite3.ts',
+  'postgres': 'src/drivers/postgres.ts',
+}
+
+const config = [
   {
-    input: {
-      'index.cjs': 'src/index.ts',
-      'sqlite3': 'src/sqlite3.ts',
-      'postgres': 'src/postgres.ts',
-      // 'index-test': 'src/index.test.ts'
-    },
-    output: {
-      exports: 'named',
-      format: 'cjs',
-      dir: 'dist'
-    },
-    plugins: [
-      typescript()
-    ]
-  },
-  {
-    input: {
-      'index.esm': 'src/index.ts',
-      'sqlite3': 'src/sqlite3.ts',
-      'postgres': 'src/postgres.ts',
-      // 'index-test': 'src/index.test.ts'
-    },
+    input,
     output: {
       chunkFileNames: '[name].mjs',
       entryFileNames: '[name].mjs',
@@ -35,3 +22,18 @@ export default [
     ]
   }
 ];
+
+if (process.env.MODE === 'production')
+  config.unshift({
+    input,
+    output: {
+      exports: 'named',
+      format: 'cjs',
+      dir: 'dist'
+    },
+    plugins: [
+      typescript()
+    ]
+  });
+
+export default config;

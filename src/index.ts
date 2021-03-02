@@ -1,23 +1,35 @@
-import type { Parameter, SQLDriver } from './definitions';
-import type { SQLRequest } from './request';
+import type { Parameter, Row } from './definitions';
+import type { SQLDriver } from './driver';
 
-export type { SQLDriver, SQLTemplate, SQLRequest };
-
-// import { DEFAULT_DRIVER } from './definitions';
+import { SQLDriverControler } from './driver';
+// import type { JSToPostgresTypeMap, Options } from './options';
 import { SQLTemplate } from './request';
-import { NonTaggedTemplateCallError } from './errors';
 
-export { safe } from './helpers_def';
+export * from './helpers/index'
+export * from './file'
 
-export * as errors from './errors';
-export * from './helpers_list';
+export interface SQL {
+  <T extends Row>(tsa: TemplateStringsArray, ...parameters: Parameter[]): SQLTemplate<T>;
 
-// export const sql = createSql(DEFAULT_DRIVER);
+  end(): Promise<void>;
+}
 
-export function createSql(driver: SQLDriver) {
-  return function sql(sql: TemplateStringsArray, ...parameters: Parameter[]) {
-    if (!Array.isArray(sql.raw))
-      throw new NonTaggedTemplateCallError();
-    return new SQLTemplate(driver, sql.raw, parameters).render();
+export default function anysql<T extends SQLDriver>(driver: T, raw: boolean = false): SQL {
+  if (!driver)
+    throw new Error('Missing or invalid required parameter "driver"');
+
+  const controller = new SQLDriverControler(driver);
+
+  function sql<T extends Row>(tsa: TemplateStringsArray, ...parameters: Parameter[]) {
+    if (!(tsa && tsa.raw))
+      throw new Error('Illegal function call');
+    return new SQLTemplate<T>(controller, raw, tsa, parameters);
   }
+
+  async function end() {
+    await controller.end();
+  }
+
+  sql.end = end;
+  return sql;
 }

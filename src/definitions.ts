@@ -1,21 +1,22 @@
-import type { StaticSQL, SQLHelper } from './helpers_def';
-import type { SQLJson } from './helpers_list';
-import type { SQLRequest } from './index';
+import type { SQLArray } from './helpers/array';
+import type { SQLJson } from './helpers/json';
+import type { SQLTemplate } from './request';
+import type { SQLHelper } from './helper';
 
-export type PrepapredParameter = object | BasicParameter | PrepapredParameter[];
+export type BasicParameter = null | boolean | number | string | Date | Uint8Array | SQLJson;
 
-export type BasicParameter = null | boolean | number | bigint | string | Date | Uint8Array | SQLJson | BasicParameter[];
+export type SimpleParameter = BasicParameter | SQLArray;
 
-export type SimpleParameter = BasicParameter | SQLRequest | StaticSQL | SQLHelper | SimpleParameter[];
+export type Parameter = SimpleParameter | SQLHelper | SQLTemplate | Parameter[];
 
-export type Parameter = SimpleParameter | (() => SimpleParameter);
-
-export interface SQLDriver {
-  escape?(str: string): string;
-  placeholder(index: number): string;
-  encode?(param: PrepapredParameter, index: number): PrepapredParameter;
+export interface Notice {
+  [field: string]: string;
 }
 
-export const DEFAULT_DRIVER: SQLDriver = {
-  placeholder: () => '?'
-};
+export interface Row {
+  [column: string]: any;
+}
+
+export interface Column {
+  name: string;
+}
