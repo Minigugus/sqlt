@@ -1,30 +1,27 @@
-import { SQLCursor } from '../cursor';
-import { BasicParameter, Row, SimpleParameter } from '../definitions';
-import { encodeParameter, SQLDriver, SQLDriverControler } from '../driver';
-import { SQLHelper } from '../helper';
-import { SQLArrayContent } from '../helpers/array';
-import { SQLBuilder } from '../request';
-import { SQLResponse } from '../response';
+import type { Row, SimpleParameter } from '../definitions';
+import type { SQLResponse } from '../response';
+import type { SQLBuilder } from '../request';
+import type { SQLCursor } from '../cursor';
+import type { SQLDriver } from '../driver';
 
-const noop = <T>(i: T) => i;
+import { SQLJson } from '../helpers/json';
+import { SQLArray } from '../helpers/array';
 
+/**
+ * @deprecated
+ */
 export class NullDriver implements SQLDriver {
-  null(): unknown { return null }
-  boolean(v: boolean): unknown { return v; }
-  number(v: number): unknown { return v; }
-  bigint(v: bigint): unknown { return v; }
-  string(v: string): unknown { return v; }
-  date(v: Date): unknown { return v; }
-  buffer(v: Uint8Array): unknown { return v; }
-  array(v: SQLArrayContent<BasicParameter>): unknown { return v; }
-  json(v: any, replacer: null | (number | string)[]): unknown {
-    if (replacer)
-      v = replaceWithIncludedProps(v, replacer);
-    return v;
+  prepare(value: SimpleParameter): unknown {
+    if (
+      value instanceof SQLArray ||
+      value instanceof SQLJson
+    )
+      return value.value;
+    return value;
   }
 
-  print(value: SimpleParameter): string {
-    return JSON.stringify(encodeParameter(this, value));
+  serialize(value: SimpleParameter): string {
+    return JSON.stringify(this.prepare(value));
   }
 
   encode(builder: SQLBuilder, value: SimpleParameter, index: number) {
@@ -47,72 +44,3 @@ export class NullDriver implements SQLDriver {
 }
 
 export default new NullDriver();
-
-const CIRCULAR = new WeakSet();
-
-function replaceWithIncludedProps(v: any, props: (number | string)[]) {
-  if (typeof v === 'object' && v) {
-    if (
-      v instanceof Date ||
-      v instanceof Uint8Array ||
-      v instanceof SQLHelper ||
-      CIRCULAR.has(v)
-    )
-      return v;
-    CIRCULAR.add(v);
-    try {
-      if (Array.isArray(v)) {
-        const p = new Set(props);
-        const arr: any[] = [];
-        for (let i = 0; i < v.length; i++)
-          if (p.has(i) || p.has(String(i)))
-            arr.push(replaceWithIncludedProps(v, props));
-        return arr;
-      } else {
-        const res: { [key: string]: any } = {};
-        for (const k in v)
-          if (k in v && v[k] !== undefined)
-            res[k] = replaceWithIncludedProps(v, props);
-        return res;
-      }
-    } finally {
-      CIRCULAR.delete(v);
-    }
-  }
-  return v;
-}
-
-// function replaceWithReplacer(v: any, replacer: (this: any, key: string, value: any) => any) {
-//   if (typeof v === 'object' && v) {
-//     if (
-//       v instanceof Date ||
-//       v instanceof Uint8Array ||
-//       v instanceof SQLHelper ||
-//       CIRCULAR.has(v)
-//     )
-//       return v;
-//     CIRCULAR.add(v);
-//     try {
-//       if (Array.isArray(v)) {
-//         const arr: any[] = [];
-//         for (let i = 0; i < v.length; i++) {
-//           const value = replacer.call(v, String(i), v[i]);
-//           if (value !== undefined)
-//             arr.push(replaceWithReplacer(value, replacer));
-//         }
-//         return arr;
-//       } else {
-//         const res: { [key: string]: any } = {};
-//         for (const k in v) {
-//           const value = replacer.call(v, k, v[k]);
-//           if (value !== undefined)
-//             res[k] = replaceWithReplacer(value, replacer);
-//         }
-//         return res;
-//       }
-//     } finally {
-//       CIRCULAR.delete(v);
-//     }
-//   }
-//   return v;
-// }

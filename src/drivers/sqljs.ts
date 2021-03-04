@@ -1,26 +1,36 @@
-import type sqlite3drv from 'sqlite3';
+import type sqljs from 'sql.js';
 
 import { SQLDriver, unencodable } from '../driver';
 
-import { SQLResponse } from '../response';
+import { SQLMultiStatementResponse, SQLResponse } from '../response';
 import { BasicParameter, Row, SimpleParameter } from '../definitions';
 import { SQLArray, SQLArrayContent } from '../helpers/array';
 import { SQLJson } from '../helpers/json';
 import { SQLBuilder } from '../request';
-import { SQLAsyncCursor, SQLSyncCursor } from '../cursor';
+import { SQLSyncCursor } from '../cursor';
 
-class SQLite3Driver implements SQLDriver {
-  #db: sqlite3drv.Database | null;
+type Database = InstanceType<(ReturnType<typeof sqljs> extends Promise<infer R> ? R : never)['Database']>;
+
+function wrap({ columns, values }: ReturnType<Database['exec']>[number]) {
+  return new SQLResponse(
+    values.map(v => v.reduce((obj, vv, i) => (obj[columns[i]] = vv, obj), {} as Row)),
+    columns.map(name => ({ name })),
+    values.length
+  );
+}
+
+class SQLJSDriver implements SQLDriver {
+  #db: Database | null;
 
   public constructor(
-    db: sqlite3drv.Database | null
+    db: Database | null
   ) {
     this.#db = db;
   }
 
   private getSQL() {
     if (this.#db === null)
-      throw new Error('Template mode only - pass an instance of an SQLite3 `Database` class to enter full mode');
+      throw new Error('Template mode only - pass an instance of an sql-wasm `Database` class to enter full mode');
     return this.#db;
   }
 
@@ -48,7 +58,7 @@ class SQLite3Driver implements SQLDriver {
         else if (value instanceof Date)
           return value;
         else if (value instanceof Uint8Array)
-          return value instanceof Buffer ? value : Buffer.from(value);
+          return value;
         else if (value instanceof SQLArray)
           return JSON.stringify(this.cleanArray(value.value));
         else if (value instanceof SQLJson)
@@ -89,36 +99,42 @@ class SQLite3Driver implements SQLDriver {
     builder.addSimpleParameter('?', value);
   }
 
-  async query(sql: string, parameters: SimpleParameter[]): Promise<SQLResponse> {
+  async query(sql: string, parameters: SimpleParameter[]): Promise<SQLResponse | SQLMultiStatementResponse> {
     const db = this.getSQL();
-    return new SQLResponse(
-      await new Promise<Row[]>((res, rej) =>
-        db.all(sql, parameters.map(p => this.prepare(p)), (err, row) => err ? rej(err) : res(row))
-      )
-    );
+    // @ts-ignore
+    const result = db.exec(sql, parameters.map(p => this.prepare(p)));
+    switch (result.length) {
+      case 0:
+        return new SQLResponse([], [], 0);
+      case 1:
+        return wrap(result[0]);
+    }
+    return result.map(wrap);
   }
 
   async cursor(size: number, sql: string, parameters: SimpleParameter[]): Promise<SQLSyncCursor> {
     const db = this.getSQL();
-    const rows = await new Promise<Row[]>((res, rej) =>
-      db.all(sql, parameters.map(p => this.prepare(p)), (err, row) => err ? rej(err) : res(row))
-    );
+    // @ts-ignore
+    const result = db.exec(sql, parameters.map(p => this.prepare(p)));
+    if (result.length > 1)
+      throw new Error("Cursor doesn't work with multi-statement queries");
+    const { columns, values } = result[0];
     return new SQLSyncCursor(
-      () => (function *sqlite3cursor(size: number, rows: any[]) {
+      () => (function* sqlite3cursor(size: number, rows: any[]) {
         for (let i = 0; i < rows.length; i += size)
           yield rows.slice(i, i + size);
-      })(size, rows),
-      Object.keys(rows[0]).map(name => ({ name })),
-      rows.length
+      })(size, values.map(v => v.reduce((obj, vv, i) => (obj[columns[i]] = vv, obj), {} as Row))),
+      columns.map(name => ({ name })),
+      values.length
     );
   }
 
   async end() {
     const db = this.getSQL();
-    return new Promise<void>((res, rej) => db.close(err => err ? rej(err) : res()))
+    db.close();
   }
 }
 
-export default function sqlite3(db: sqlite3drv.Database): SQLite3Driver {
-  return new SQLite3Driver(db);
+export default function sqjs(db: Database): SQLJSDriver {
+  return new SQLJSDriver(db);
 }

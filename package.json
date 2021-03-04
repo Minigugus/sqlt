@@ -17,15 +17,18 @@
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^14.14.31",
+    "@types/sql.js": "^1.4.0",
     "@types/sqlite3": "^3.1.7",
+    "postgres": "^2.0.0-beta.4",
     "rollup": "^2.40.0",
     "rollup-plugin-typescript2": "^0.30.0",
-    "typescript": "^4.2.2",
-    "postgres": "^2.0.0-beta.4",
-    "sqlite3": "^5.0.2"
+    "sql.js": "^1.4.0",
+    "sqlite3": "^5.0.2",
+    "typescript": "^4.2.2"
   },
   "peerDependencies": {
     "postgres": "^2.0.0-beta.4",
+    "sql.js": "^1.4.0",
     "sqlite3": "^5.0.2"
   }
 }

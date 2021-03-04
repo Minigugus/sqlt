@@ -1,15 +1,12 @@
-import { SimpleParameter } from '../definitions';
+import { DynamicParameter } from '../definitions';
 import { HELPER_SYMBOL, SQLHelper } from '../helper';
 import { SQLBuilder } from '../request';
 
-export class SQLValues<T extends { [key: string]: SimpleParameter | undefined }> extends SQLHelper {
-  public readonly rows: readonly T[];
-  public readonly columns: readonly ((keyof T) & string)[]
-
+export /*#__PURE__*/class SQLValues<T extends { [key: string]: DynamicParameter | undefined }> extends SQLHelper {
   constructor(
-    rows: readonly T[],
-    columns: readonly ((keyof T) & string)[]
-  ) {
+    public readonly rows: readonly T[],
+    public readonly columns: readonly ((keyof T) & string)[]
+    ) {
     super();
     this.rows = rows;
     this.columns = Object.freeze(columns.length === 0 ? this.rows[0] ? Object.keys(this.rows[0]) : [] : columns);
@@ -25,10 +22,10 @@ export class SQLValues<T extends { [key: string]: SimpleParameter | undefined }>
 
     // Columns
     builder.addSQL('(');
-    builder.addSQL(builder.identifier(columns[0]));
+    builder.addIdentifier(columns[0]);
     for (let i = 1; i < columns.length; i++) {
       builder.addSQL(', ');
-      builder.addSQL(builder.identifier(columns[i]));
+      builder.addIdentifier(columns[i]);
     }
     builder.addSQL(') ');
 
@@ -41,28 +38,28 @@ export class SQLValues<T extends { [key: string]: SimpleParameter | undefined }>
     }
     builder.addSQL(')');
 
-    function addRow(row: { [key: string]: SimpleParameter | undefined }) {
+    function addRow(row: { [key: string]: DynamicParameter | undefined }) {
       addValue(row[columns[0]]);
       for (let i = 1; i < columns.length; i++) {
         builder.addSQL(', ');
         addValue(row[columns[i]]);
       }
     }
-    function addValue(p: SimpleParameter | undefined) {
-      switch (typeof p) {
-        default:
-          builder.renderSimpleParameter(p);
-          break;
-        case 'undefined':
-          // case 'function':
-          // case 'symbol':
-          builder.addSQL('DEFAULT');
-      }
+    function addValue(p: DynamicParameter | undefined) {
+      builder.renderDynamicParameter(p);
     }
   }
 }
 
-export function values<T extends { [column: string]: SimpleParameter | undefined }>(
+/**
+ * Create an `INSERT INTO` columns and values list to insert supplied `rows`.
+ * @param rows The list of rows to insert.
+ * @param columns List of columns to insert. If none are provided,
+ * all enumerable properties from the first row will be used.
+ * @returns An object that can be passed as a sql template string parameter. It will be rendered as
+ * the list of columns, followed by the `VALUES` keyword, followed by all `rows` in the values format.
+ */
+export /*#__PURE__*/function values<T extends { [column: string]: DynamicParameter | undefined }>(
   rows: readonly T[],
   ...columns: readonly ((keyof T) & string)[]
 ) {

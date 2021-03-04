@@ -11,7 +11,7 @@ import { sqlite3 as sqlite3drv } from '../dist/drivers.mjs';
 // @ts-ignore
 import { manualTest } from './generic.test.mjs';
 
-const sql = createSql(sqlite3drv(new sqlite3.Database(':memory:')), true);
+const sql = createSql(sqlite3drv(new sqlite3.Database(':memory:')), false);
 
 manualTest(sql)
   .then(console.info, console.error)

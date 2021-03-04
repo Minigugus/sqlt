@@ -1,7 +1,10 @@
-import type { Parameter, Row, SimpleParameter } from './definitions';
+import type { DynamicParameter, Parameter, Row, SimpleParameter } from './definitions';
+import type { SQLMultiStatementResponse, SQLResponse } from './response';
+import type { SQLCursor } from './cursor';
+
 import { SQLDriverControler } from './driver';
-import { SQLHelper, invokeHelper } from './helper';
-import { SQLResponse } from './response';
+import { SQLHelper, invokeHelper, SQLExpression } from './helper';
+import { array, json } from './helpers';
 
 export type { SQLBuilder };
 
@@ -33,12 +36,20 @@ class SQLBuilder {
     return this.#parameters.length;
   }
 
-  identifier(name: string) {
+  private identifier(name: string) {
     return this.controller.identifier(name);
   }
 
   addSQL(trusted: string) {
     this.#sql += trusted;
+  }
+
+  addIdentifier(name: string) {
+    this.#sql += this.identifier(name);
+  }
+
+  printSimpleParameter(parameter: SimpleParameter) {
+    this.addSQL(this.controller.print(parameter));
   }
 
   addSimpleParameter(placeholder: string, parameter: SimpleParameter) {
@@ -58,6 +69,24 @@ class SQLBuilder {
 
   renderSimpleParameter(value: SimpleParameter) {
     this.controller.encode(this, value, this.nextId);
+  }
+
+  renderDynamicParameter(value: DynamicParameter | undefined) {
+    if (value === undefined)
+      this.addSQL('DEFAULT');
+    else if (value instanceof SQLTemplate) { // Sub-queries
+      this.addSQL('(');
+      value[RENDER_SYMBOL](this);
+      this.addSQL(')');
+    } else if (value instanceof SQLExpression)
+      invokeHelper(this, value);
+    else {
+      if (Array.isArray(value))
+        value = array(value);
+      else if (typeof value === 'object') // Isn't a SQLExpression, shouldn't be a SQLHelper
+        value = json(value);
+      this.renderSimpleParameter(value);
+    }
   }
 
   renderParameter(value: Parameter) {
@@ -86,7 +115,7 @@ export function renderTemplate(template: SQLTemplate, builder: SQLBuilder) {
 
 const RENDER_SYMBOL = Symbol();
 
-export class SQLTemplate<T extends Row = Row> implements PromiseLike<SQLResponse<T>> {
+export class SQLTemplate<T extends Row = Row> implements PromiseLike<SQLResponse<T> | SQLMultiStatementResponse<T>> {
   #sql: readonly string[];
   #parameters: Parameter[];
 
@@ -103,6 +132,8 @@ export class SQLTemplate<T extends Row = Row> implements PromiseLike<SQLResponse
     this.#sql = sql;
     this.#parameters = parameters;
     this.#controller = controller;
+    if (parameters.length === 0) // Static query
+      this.#cached = [this.#rawCached = sql[0], []];
   }
 
   renderSQL() {
@@ -124,7 +155,7 @@ export class SQLTemplate<T extends Row = Row> implements PromiseLike<SQLResponse
   private [RENDER_SYMBOL](buidler: SQLBuilder) {
     const sql = this.#sql;
     const parameters = this.#parameters;
-    let i;
+    let i = 0;
     for (i = 0; i < parameters.length; i++) {
       buidler.addSQL(sql[i]);
       buidler.renderParameter(parameters[i]);
@@ -134,7 +165,11 @@ export class SQLTemplate<T extends Row = Row> implements PromiseLike<SQLResponse
     return buidler;
   }
 
-  then<TResult1 = SQLResponse<T>, TResult2 = never>(onfulfilled?: ((value: SQLResponse<T>) => TResult1 | PromiseLike<TResult1>) | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null): PromiseLike<TResult1 | TResult2> {
+  cursor(size: number): PromiseLike<SQLCursor<T>> {
+    return this.#controller.cursor<T>(size, ...this.render());
+  }
+
+  then<TResult1 = SQLResponse<T> | SQLMultiStatementResponse<T>, TResult2 = never>(onfulfilled?: ((value: SQLResponse<T> | SQLMultiStatementResponse<T>) => TResult1 | PromiseLike<TResult1>) | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null): PromiseLike<TResult1 | TResult2> {
     return this.#controller.query<T>(...this.render())
       .then(onfulfilled, onrejected);
   }

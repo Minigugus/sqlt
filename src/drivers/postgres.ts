@@ -1,23 +1,21 @@
-import { encodeParameter, SQLDriver } from '../driver';
-
-import { NullDriver } from './null';
+import { SQLDriver, unencodable } from '../driver';
 
 import type postgresDrv from 'postgres';
 
 import { SQLResponse } from '../response';
 import { BasicParameter, SimpleParameter } from '../definitions';
-import { SQLHelper } from '../helper';
 import { SQLJson } from '../helpers/json';
-import { array, SQLArray, SQLArrayContent } from '../helpers/array';
+import { SQLArray, SQLArrayContent } from '../helpers/array';
 import { SQLBuilder } from '../request';
+import { SQLAsyncCursor } from '../cursor';
+import { AsyncIterableWithCallback } from '../db2asynciterator';
 
-class PostgresDriver extends NullDriver {
+class PostgresDriver implements SQLDriver {
   #pg: postgresDrv.Sql<any> | null;
 
   public constructor(
     pg: postgresDrv.Sql<any> | null
   ) {
-    super();
     this.#pg = pg;
   }
 
@@ -27,47 +25,46 @@ class PostgresDriver extends NullDriver {
     return this.#pg;
   }
 
-  private encodeNeasted(v: any) {
-    if (v instanceof SQLHelper)
-      return encodeParameter(this, v as SQLArray | SQLJson);
-    return v;
+  prepare(value: SimpleParameter): postgresDrv.SerializableParameter {
+    switch (typeof value) {
+      case 'boolean':
+      case 'number':
+      case 'string':
+        return value;
+      case 'bigint':
+        // From https://github.com/porsager/postgres/blob/0b33b7197b10c10ac60942733fe0fc9d7c46633b/lib/index.js
+        return ({
+          type: 20,
+          value: value.toString()
+        });
+      case 'object':
+        if (value === null)
+          return null;
+        else if (value instanceof Date)
+          return value;
+        else if (value instanceof Uint8Array)
+          return value instanceof Buffer ? value : Buffer.from(value);
+        else if (value instanceof SQLArray)
+          return this.getSQL().array(value.value as never);
+        else if (value instanceof SQLJson)
+          return this.getSQL().json(value.value);
+    }
+    unencodable(value);
   }
 
-  bigint(v: bigint) {
-    // From https://github.com/porsager/postgres/blob/0b33b7197b10c10ac60942733fe0fc9d7c46633b/lib/index.js
-    return ({
-      type: 20,
-      value: v.toString()
-    });
-  }
-
-  buffer(v: Uint8Array) {
-    if (v instanceof Buffer)
-      return v;
-    return Buffer.from(v);
-  }
-
-  array(v: SQLArrayContent<BasicParameter>): string {
-    throw new Error('Unreachable');
-  }
-
-  json(v: any, replacer: null | (number | string)[]): unknown {
-    return this.getSQL().json(super.json(v, replacer));
-  }
-
-  private printArray(arr: SQLArrayContent<BasicParameter>) {
+  private serializeArray(arr: SQLArrayContent<BasicParameter>) {
     if (arr.length === 0)
       return "'{}'";
     let result = 'ARRAY[';
-    result += Array.isArray(arr[0]) ? this.printArray(arr[0]) : this.print(arr[0]);
+    result += Array.isArray(arr[0]) ? this.serializeArray(arr[0]) : this.serialize(arr[0]);
     for (let i = 1; i < arr.length; i++) {
       const value = arr[i];
-      result += ',' + (Array.isArray(value) ? this.printArray(value) : this.print(value));
+      result += ',' + (Array.isArray(value) ? this.serializeArray(value) : this.serialize(value));
     }
     return result + ']';
   }
 
-  print(value: SimpleParameter): string {
+  serialize(value: SimpleParameter): string {
     switch (typeof value) {
       case 'boolean':
         return value ? 'f' : 't';
@@ -80,19 +77,15 @@ class PostgresDriver extends NullDriver {
         if (value === null)
           return 'NULL';
         else if (value instanceof Date)
-          return this.print(value.toISOString()) + '::timestamp';
+          return this.serialize(value.toISOString()) + '::timestamp';
         else if (value instanceof Uint8Array)
-          return this.print('\\x' + value.reduce((acc, x) => (acc + (x >> 4).toString(16) + (x & 15).toString(16)), '')) + '::bytea';
+          return this.serialize('\\x' + value.reduce((acc, x) => (acc + (x >> 4).toString(16) + (x & 15).toString(16)), '')) + '::bytea';
         else if (value instanceof SQLArray)
-          return this.printArray(value.value);
-        else if (value instanceof SQLJson) {
-          const json = JSON.stringify(value.value, value.replacer as never)
-          if (json === undefined)
-            throw new Error('The replacer function passed to a replacer');
-          return this.print(json) + '::json';
-        }
+          return this.serializeArray(value.value);
+        else if (value instanceof SQLJson)
+          return this.serialize(JSON.stringify(value.value)) + '::json';
     }
-    throw new Error('Cannot encode type ' + typeof value + ': ' + String(value as undefined));
+    unencodable(value);
   }
 
   private encodeArray(builder: SQLBuilder, arr: SQLArrayContent<BasicParameter>, depth = 0) {
@@ -137,11 +130,41 @@ class PostgresDriver extends NullDriver {
   }
 
   async query(sql: string, parameters: SimpleParameter[]): Promise<SQLResponse> {
-    const result = await this.getSQL().unsafe(sql, parameters.map(p => encodeParameter(this, p) as any));
+    const result = await this.getSQL().unsafe(sql, parameters.map(p => this.prepare(p)));
     return new SQLResponse(
       result,
       result.columns,
       result.count
+    );
+  }
+
+  async cursor(size: number, sql: string, parameters: SimpleParameter[]): Promise<SQLAsyncCursor> {
+    const postgres = this.getSQL();
+    const iter = new AsyncIterableWithCallback<any[]>();
+    const cb = iter.cb!;
+    delete iter.cb;
+    const columns = await new Promise<any>(async (res, rej) => {
+      try {
+        const result = await postgres
+          .unsafe(sql, parameters.map(p => this.prepare(p)))
+          .cursor(size, async (rows) => {
+            if ('columns' in rows)
+              res((rows as any).columns);
+            if (await cb(rows))
+              return postgres.END;
+          });
+        res(result.columns || []);
+        await cb(result); // https://github.com/porsager/postgres/issues/150
+        iter.return();
+      } catch (err) {
+        rej(err);
+        iter.throw(err);
+      }
+    });
+    return new SQLAsyncCursor(
+      () => iter,
+      columns,
+      0
     );
   }
 
@@ -151,7 +174,7 @@ class PostgresDriver extends NullDriver {
   }
 }
 
-export default function postgresql(pg?: postgresDrv.Sql<any>): SQLDriver<unknown> {
+export default function postgresql(pg?: postgresDrv.Sql<any>): SQLDriver {
   return new PostgresDriver(pg || null);
 }
 

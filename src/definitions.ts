@@ -1,13 +1,18 @@
-import type { SQLArray } from './helpers/array';
-import type { SQLJson } from './helpers/json';
 import type { SQLTemplate } from './request';
-import type { SQLHelper } from './helper';
+import type {
+  SQLDynamicHelper,
+  SQLSimpleHelper,
+  SQLTemplateHelper,
+  SQLValueHelper
+} from './helpers/index';
 
-export type BasicParameter = null | boolean | number | string | Date | Uint8Array | SQLJson;
+export type BasicParameter = null | boolean | number | bigint | string | Date | Uint8Array | SQLValueHelper;
 
-export type SimpleParameter = BasicParameter | SQLArray;
+export type SimpleParameter = BasicParameter | SQLSimpleHelper;
 
-export type Parameter = SimpleParameter | SQLHelper | SQLTemplate | Parameter[];
+export type DynamicParameter = SimpleParameter | SQLTemplate | SQLDynamicHelper;
+
+export type Parameter = DynamicParameter | SQLTemplateHelper | Parameter[];
 
 export interface Notice {
   [field: string]: string;
